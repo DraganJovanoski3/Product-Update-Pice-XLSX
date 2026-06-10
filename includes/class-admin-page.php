@@ -16,7 +16,7 @@ class PUPX_Admin_Page {
 
 		add_action( 'wp_ajax_pupx_upload_file', array( __CLASS__, 'ajax_upload_file' ) );
 		add_action( 'wp_ajax_pupx_process_batch', array( __CLASS__, 'ajax_process_batch' ) );
-		add_action( 'wp_ajax_pupx_download_report', array( __CLASS__, 'ajax_download_report' ) );
+		add_action( 'admin_post_pupx_download_report', array( __CLASS__, 'download_report' ) );
 		add_action( 'admin_post_pupx_download_template', array( __CLASS__, 'download_template' ) );
 	}
 
@@ -63,8 +63,10 @@ class PUPX_Admin_Page {
 			'pupx-admin',
 			'pupxAdmin',
 			array(
-				'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
-				'nonce'     => wp_create_nonce( 'pupx_import' ),
+				'ajaxUrl'     => admin_url( 'admin-ajax.php' ),
+				'downloadUrl' => admin_url( 'admin-post.php' ),
+				'nonce'       => wp_create_nonce( 'pupx_import' ),
+				'downloadNonce' => wp_create_nonce( 'pupx_download_report' ),
 				'batchSize' => PUPX_BATCH_SIZE,
 				'i18n'      => array(
 					'uploading'    => __( 'Uploading and parsing file…', 'product-update-price-xlsx' ),
@@ -262,6 +264,9 @@ class PUPX_Admin_Page {
 		}
 
 		if ( ! empty( $session['complete'] ) ) {
+			if ( ! PUPX_Report_Builder::get_report_path( $session_id, 'xlsx' ) ) {
+				PUPX_Report_Builder::generate_reports( $session_id, $session['not_updated'] );
+			}
 			wp_send_json_success( self::build_batch_response( $session, true ) );
 		}
 
@@ -281,6 +286,10 @@ class PUPX_Admin_Page {
 
 		if ( $result['complete'] && function_exists( 'wc_update_product_lookup_tables' ) ) {
 			wc_update_product_lookup_tables();
+		}
+
+		if ( $result['complete'] ) {
+			PUPX_Report_Builder::generate_reports( $session_id, $session['not_updated'] );
 		}
 
 		wp_send_json_success( self::build_batch_response( $session, $result['complete'] ) );
@@ -334,30 +343,48 @@ class PUPX_Admin_Page {
 	}
 
 	/**
-	 * AJAX: download not-updated report.
+	 * Download not-updated report via admin-post.
 	 */
-	public static function ajax_download_report() {
+	public static function download_report() {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_die( esc_html__( 'Permission denied.', 'product-update-price-xlsx' ) );
 		}
 
-		check_ajax_referer( 'pupx_import', 'nonce' );
+		check_admin_referer( 'pupx_download_report' );
+
+		PUPX_Import_Session::raise_limits();
 
 		$session_id = isset( $_GET['session_id'] ) ? sanitize_text_field( wp_unslash( $_GET['session_id'] ) ) : '';
 		$format     = isset( $_GET['format'] ) ? sanitize_key( wp_unslash( $_GET['format'] ) ) : 'xlsx';
 
+		if ( ! in_array( $format, array( 'xlsx', 'csv' ), true ) ) {
+			$format = 'xlsx';
+		}
+
 		$session = PUPX_Import_Session::get( $session_id );
 		if ( ! $session || empty( $session['complete'] ) ) {
-			wp_die( esc_html__( 'Report not available.', 'product-update-price-xlsx' ) );
+			wp_die( esc_html__( 'Report not available. Please run the import again.', 'product-update-price-xlsx' ) );
 		}
 
-		$not_updated = isset( $session['not_updated'] ) ? $session['not_updated'] : array();
+		$file = PUPX_Report_Builder::get_report_path( $session_id, $format );
+		if ( ! $file ) {
+			PUPX_Report_Builder::generate_reports( $session_id, $session['not_updated'] );
+			$file = PUPX_Report_Builder::get_report_path( $session_id, $format );
+		}
+
+		if ( ! $file ) {
+			wp_die( esc_html__( 'Could not generate report file.', 'product-update-price-xlsx' ) );
+		}
 
 		if ( 'csv' === $format ) {
-			PUPX_Report_Builder::stream_csv( $not_updated );
+			PUPX_File_Download::send_file( $file, 'not-updated-prices.csv', 'text/csv; charset=utf-8' );
 		}
 
-		PUPX_Report_Builder::stream_xlsx( $not_updated );
+		PUPX_File_Download::send_file(
+			$file,
+			'not-updated-prices.xlsx',
+			'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+		);
 	}
 
 	/**

@@ -22,74 +22,112 @@ class PUPX_Report_Builder {
 	}
 
 	/**
-	 * Stream not-updated rows as CSV.
+	 * Build flat rows for export.
 	 *
 	 * @param array $not_updated Not-updated rows.
+	 * @return array
 	 */
-	public static function stream_csv( array $not_updated ) {
-		PUPX_File_Download::stream_headers( 'not-updated-prices.csv', 'text/csv; charset=utf-8' );
-
-		$output = fopen( 'php://output', 'w' );
-		fprintf( $output, chr( 0xEF ) . chr( 0xBB ) . chr( 0xBF ) );
-		fputcsv( $output, array( 'Row', 'SKU', 'Price', 'Reason' ) );
+	private static function build_export_rows( array $not_updated ) {
+		$rows = array( array( 'Row', 'SKU', 'Price', 'Reason' ) );
 
 		foreach ( $not_updated as $row ) {
-			fputcsv(
-				$output,
-				array(
-					$row['row_num'],
-					$row['sku'],
-					$row['price'],
-					self::reason_label( $row['reason'] ),
-				)
+			$rows[] = array(
+				$row['row_num'],
+				$row['sku'],
+				$row['price'],
+				self::reason_label( $row['reason'] ),
 			);
 		}
 
-		fclose( $output );
-		exit;
+		return $rows;
 	}
 
 	/**
-	 * Stream not-updated rows as XLSX.
+	 * Write not-updated rows to an XLSX file on disk.
 	 *
-	 * @param array $not_updated Not-updated rows.
+	 * @param string $path        Absolute file path.
+	 * @param array  $not_updated Not-updated rows.
+	 * @return bool
 	 */
-	public static function stream_xlsx( array $not_updated ) {
-		$spreadsheet = new Spreadsheet();
-		$sheet       = $spreadsheet->getActiveSheet();
-		$sheet->setTitle( 'Not Updated' );
+	public static function write_xlsx_file( $path, array $not_updated ) {
+		try {
+			$spreadsheet = new Spreadsheet();
+			$sheet       = $spreadsheet->getActiveSheet();
+			$sheet->setTitle( 'Not Updated' );
+			$sheet->fromArray( self::build_export_rows( $not_updated ) );
 
-		$sheet->fromArray( array( array( 'Row', 'SKU', 'Price', 'Reason' ) ) );
+			$sheet->getColumnDimension( 'A' )->setWidth( 8 );
+			$sheet->getColumnDimension( 'B' )->setWidth( 20 );
+			$sheet->getColumnDimension( 'C' )->setWidth( 12 );
+			$sheet->getColumnDimension( 'D' )->setWidth( 30 );
 
-		$row_index = 2;
-		foreach ( $not_updated as $row ) {
-			$sheet->fromArray(
-				array(
-					array(
-						$row['row_num'],
-						$row['sku'],
-						$row['price'],
-						self::reason_label( $row['reason'] ),
-					),
-				),
-				null,
-				'A' . $row_index
-			);
-			++$row_index;
+			( new Xlsx( $spreadsheet ) )->save( $path );
+			return is_readable( $path );
+		} catch ( Exception $e ) {
+			return false;
+		}
+	}
+
+	/**
+	 * Write not-updated rows to a CSV file on disk.
+	 *
+	 * @param string $path        Absolute file path.
+	 * @param array  $not_updated Not-updated rows.
+	 * @return bool
+	 */
+	public static function write_csv_file( $path, array $not_updated ) {
+		$output = fopen( $path, 'w' );
+		if ( false === $output ) {
+			return false;
 		}
 
-		$sheet->getColumnDimension( 'A' )->setWidth( 8 );
-		$sheet->getColumnDimension( 'B' )->setWidth( 20 );
-		$sheet->getColumnDimension( 'C' )->setWidth( 12 );
-		$sheet->getColumnDimension( 'D' )->setWidth( 30 );
+		fprintf( $output, chr( 0xEF ) . chr( 0xBB ) . chr( 0xBF ) );
 
-		PUPX_File_Download::stream_headers(
-			'not-updated-prices.xlsx',
-			'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-		);
+		foreach ( self::build_export_rows( $not_updated ) as $row ) {
+			fputcsv( $output, $row );
+		}
 
-		$writer = new Xlsx( $spreadsheet );
-		$writer->save( 'php://output' );
-		exit;
+		fclose( $output );
+		return is_readable( $path );
+	}
+
+	/**
+	 * Generate report files for a completed import session.
+	 *
+	 * @param string $session_id  Session ID.
+	 * @param array  $not_updated Not-updated rows.
+	 * @return bool
+	 */
+	public static function generate_reports( $session_id, array $not_updated ) {
+		PUPX_Import_Session::raise_limits();
+
+		$dir = PUPX_Import_Session::get_dir( $session_id );
+		if ( ! $dir ) {
+			return false;
+		}
+
+		$xlsx_ok = self::write_xlsx_file( trailingslashit( $dir ) . 'not-updated.xlsx', $not_updated );
+		$csv_ok  = self::write_csv_file( trailingslashit( $dir ) . 'not-updated.csv', $not_updated );
+
+		return $xlsx_ok && $csv_ok;
+	}
+
+	/**
+	 * Get path to a generated report file.
+	 *
+	 * @param string $session_id Session ID.
+	 * @param string $format     xlsx or csv.
+	 * @return string|null
+	 */
+	public static function get_report_path( $session_id, $format ) {
+		$dir = PUPX_Import_Session::get_dir( $session_id );
+		if ( ! $dir ) {
+			return null;
+		}
+
+		$filename = 'csv' === $format ? 'not-updated.csv' : 'not-updated.xlsx';
+		$path     = trailingslashit( $dir ) . $filename;
+
+		return is_readable( $path ) ? $path : null;
 	}
 }

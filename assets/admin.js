@@ -234,11 +234,11 @@
 		if (!sessionId) {
 			return;
 		}
-		var url = pupxAdmin.ajaxUrl +
+		var url = pupxAdmin.downloadUrl +
 			'?action=pupx_download_report' +
 			'&session_id=' + encodeURIComponent(sessionId) +
 			'&format=' + encodeURIComponent(format) +
-			'&nonce=' + encodeURIComponent(pupxAdmin.nonce);
+			'&_wpnonce=' + encodeURIComponent(pupxAdmin.downloadNonce);
 		window.location.href = url;
 	}
 

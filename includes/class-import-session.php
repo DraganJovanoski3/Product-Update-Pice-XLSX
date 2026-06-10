@@ -13,6 +13,21 @@ class PUPX_Import_Session {
 	 * Get storage directory for a session.
 	 *
 	 * @param string $session_id Session ID.
+	 * @return string|null
+	 */
+	public static function get_dir( $session_id ) {
+		if ( empty( $session_id ) ) {
+			return null;
+		}
+
+		$dir = self::session_dir( $session_id );
+		return is_dir( $dir ) ? $dir : null;
+	}
+
+	/**
+	 * Get storage directory for a session.
+	 *
+	 * @param string $session_id Session ID.
 	 * @return string
 	 */
 	private static function session_dir( $session_id ) {
