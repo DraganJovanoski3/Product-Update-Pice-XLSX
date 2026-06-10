@@ -147,9 +147,14 @@
 		$('#pupx-results-section').addClass('pupx-hidden');
 		$('#pupx-start-import').prop('disabled', true).addClass('pupx-loading');
 
+		var retries = 0;
+		var maxRetries = 3;
+
 		function nextBatch() {
 			processBatch()
 				.done(function (response) {
+					retries = 0;
+
 					if (!response.success) {
 						showNotice(response.data && response.data.message ? response.data.message : pupxAdmin.i18n.error, 'error');
 						$('#pupx-start-import').prop('disabled', false).removeClass('pupx-loading');
@@ -168,6 +173,12 @@
 					nextBatch();
 				})
 				.fail(function (xhr) {
+					if (retries < maxRetries) {
+						retries += 1;
+						setTimeout(nextBatch, 2000);
+						return;
+					}
+
 					showNotice(getAjaxErrorMessage(xhr, pupxAdmin.i18n.error), 'error');
 					$('#pupx-start-import').prop('disabled', false).removeClass('pupx-loading');
 				});

@@ -176,25 +176,21 @@ class PUPX_Import_Session {
 			throw new Exception( __( 'Could not save import session.', 'product-update-price-xlsx' ) );
 		}
 
-		self::write_json( trailingslashit( $dir ) . 'not-updated.json', array() );
 		self::write_json( trailingslashit( $dir ) . 'processed-skus.json', array() );
+		file_put_contents( trailingslashit( $dir ) . 'not-updated.jsonl', '' );
 
 		return $session_id;
 	}
 
 	/**
-	 * Get session data.
+	 * Load session data for batch processing (avoids loading full not-updated list).
 	 *
 	 * @param string $session_id Session ID.
 	 * @return array|null
 	 */
-	public static function get( $session_id ) {
-		if ( empty( $session_id ) ) {
-			return null;
-		}
-
-		$dir = self::session_dir( $session_id );
-		if ( ! is_dir( $dir ) ) {
+	public static function get_for_batch( $session_id ) {
+		$dir = self::get_dir( $session_id );
+		if ( ! $dir ) {
 			return null;
 		}
 
@@ -205,20 +201,34 @@ class PUPX_Import_Session {
 			return null;
 		}
 
-		$not_updated    = self::read_json( trailingslashit( $dir ) . 'not-updated.json' );
 		$processed_skus = self::read_json( trailingslashit( $dir ) . 'processed-skus.json' );
-		$sku_data       = self::read_json( trailingslashit( $dir ) . 'sku-map.json' );
 
-		$session = array_merge(
+		return array_merge(
 			$meta,
 			array(
 				'rows'           => $rows,
-				'not_updated'    => is_array( $not_updated ) ? $not_updated : array(),
 				'processed_skus' => is_array( $processed_skus ) ? $processed_skus : array(),
 				'sku_map'        => array(),
 				'duplicate_skus' => array(),
+				'not_updated'    => array(),
 			)
 		);
+	}
+
+	/**
+	 * Get full session data including not-updated rows.
+	 *
+	 * @param string $session_id Session ID.
+	 * @return array|null
+	 */
+	public static function get( $session_id ) {
+		$session = self::get_for_batch( $session_id );
+		if ( ! $session ) {
+			return null;
+		}
+
+		$session['not_updated'] = self::read_not_updated( $session_id );
+		$sku_data               = self::read_json( trailingslashit( self::get_dir( $session_id ) ) . 'sku-map.json' );
 
 		if ( is_array( $sku_data ) ) {
 			$session['sku_map']        = isset( $sku_data['map'] ) ? $sku_data['map'] : array();
@@ -229,15 +239,81 @@ class PUPX_Import_Session {
 	}
 
 	/**
-	 * Save session data.
+	 * Read all not-updated rows from session storage.
+	 *
+	 * @param string $session_id Session ID.
+	 * @return array
+	 */
+	public static function read_not_updated( $session_id ) {
+		$dir = self::get_dir( $session_id );
+		if ( ! $dir ) {
+			return array();
+		}
+
+		$jsonl_path = trailingslashit( $dir ) . 'not-updated.jsonl';
+		if ( is_readable( $jsonl_path ) && filesize( $jsonl_path ) > 0 ) {
+			$rows  = array();
+			$lines = file( $jsonl_path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES );
+
+			if ( is_array( $lines ) ) {
+				foreach ( $lines as $line ) {
+					$row = json_decode( $line, true );
+					if ( is_array( $row ) ) {
+						$rows[] = $row;
+					}
+				}
+			}
+
+			return $rows;
+		}
+
+		$legacy = self::read_json( trailingslashit( $dir ) . 'not-updated.json' );
+		return is_array( $legacy ) ? $legacy : array();
+	}
+
+	/**
+	 * Append not-updated rows to session log file.
+	 *
+	 * @param string $session_id Session ID.
+	 * @param array  $entries    Rows to append.
+	 * @return bool
+	 */
+	public static function append_not_updated( $session_id, array $entries ) {
+		if ( empty( $entries ) ) {
+			return true;
+		}
+
+		$dir = self::get_dir( $session_id );
+		if ( ! $dir ) {
+			return false;
+		}
+
+		$path = trailingslashit( $dir ) . 'not-updated.jsonl';
+		$fp   = fopen( $path, 'a' );
+
+		if ( false === $fp ) {
+			return false;
+		}
+
+		foreach ( $entries as $entry ) {
+			fwrite( $fp, wp_json_encode( $entry ) . "\n" );
+		}
+
+		fclose( $fp );
+		return true;
+	}
+
+	/**
+	 * Save batch progress without rewriting large arrays.
 	 *
 	 * @param string $session_id Session ID.
 	 * @param array  $session    Session data.
+	 * @param array  $new_skipped New not-updated entries from this batch.
 	 * @return bool
 	 */
-	public static function save( $session_id, array $session ) {
-		$dir = self::session_dir( $session_id );
-		if ( ! is_dir( $dir ) ) {
+	public static function save_batch( $session_id, array $session, array $new_skipped = array() ) {
+		$dir = self::get_dir( $session_id );
+		if ( ! $dir ) {
 			return false;
 		}
 
@@ -251,19 +327,9 @@ class PUPX_Import_Session {
 			'created_at'     => isset( $session['created_at'] ) ? (int) $session['created_at'] : time(),
 		);
 
-		$ok  = self::write_json( trailingslashit( $dir ) . 'meta.json', $meta );
-		$ok  = self::write_json( trailingslashit( $dir ) . 'not-updated.json', $session['not_updated'] ) && $ok;
-		$ok  = self::write_json( trailingslashit( $dir ) . 'processed-skus.json', $session['processed_skus'] ) && $ok;
-
-		if ( ! empty( $session['sku_map_loaded'] ) ) {
-			$ok = self::write_json(
-				trailingslashit( $dir ) . 'sku-map.json',
-				array(
-					'map'        => $session['sku_map'],
-					'duplicates' => $session['duplicate_skus'],
-				)
-			) && $ok;
-		}
+		$ok = self::write_json( trailingslashit( $dir ) . 'meta.json', $meta );
+		$ok = self::write_json( trailingslashit( $dir ) . 'processed-skus.json', $session['processed_skus'] ) && $ok;
+		$ok = self::append_not_updated( $session_id, $new_skipped ) && $ok;
 
 		return $ok;
 	}
@@ -281,16 +347,34 @@ class PUPX_Import_Session {
 	}
 
 	/**
-	 * Ensure SKU map is loaded once per session.
+	 * Ensure SKU map file exists for this session.
 	 *
-	 * @param array $session Session data (passed by reference).
+	 * @param string $session_id Session ID.
+	 * @param array  $session    Session data (passed by reference).
 	 */
-	public static function ensure_sku_map( array &$session ) {
-		if ( ! empty( $session['sku_map_loaded'] ) ) {
-			return;
+	public static function ensure_sku_map( $session_id, array &$session ) {
+		$dir  = self::get_dir( $session_id );
+		$path = trailingslashit( $dir ) . 'sku-map.json';
+
+		if ( is_readable( $path ) ) {
+			$data = self::read_json( $path );
+			if ( is_array( $data ) ) {
+				$session['sku_map']        = isset( $data['map'] ) ? $data['map'] : array();
+				$session['duplicate_skus'] = isset( $data['duplicates'] ) ? $data['duplicates'] : array();
+				$session['sku_map_loaded'] = true;
+				return;
+			}
 		}
 
 		$resolved = PUPX_Sku_Resolver::build_map();
+		self::write_json(
+			$path,
+			array(
+				'map'        => $resolved['map'],
+				'duplicates' => $resolved['duplicates'],
+			)
+		);
+
 		$session['sku_map']        = $resolved['map'];
 		$session['duplicate_skus'] = $resolved['duplicates'];
 		$session['sku_map_loaded'] = true;
@@ -306,6 +390,20 @@ class PUPX_Import_Session {
 			@set_time_limit( 300 );
 		}
 
-		@ini_set( 'memory_limit', '512M' );
+		@ini_set( 'memory_limit', '768M' );
+	}
+
+	/**
+	 * Reduce WooCommerce overhead during batch updates.
+	 *
+	 * @param bool $defer Whether to defer heavy WC work.
+	 */
+	public static function set_wc_deferred( $defer ) {
+		if ( function_exists( 'wc_deferred_product_sync' ) ) {
+			wc_deferred_product_sync( (bool) $defer );
+		}
+
+		wp_defer_term_counting( (bool) $defer );
+		wp_defer_comment_counting( (bool) $defer );
 	}
 }

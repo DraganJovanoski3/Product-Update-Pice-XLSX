@@ -258,51 +258,51 @@ class PUPX_Admin_Page {
 
 		$session_id = isset( $_POST['session_id'] ) ? sanitize_text_field( wp_unslash( $_POST['session_id'] ) ) : '';
 
-		$session = PUPX_Import_Session::get( $session_id );
-		if ( ! $session ) {
-			wp_send_json_error( array( 'message' => __( 'Import session expired. Please upload the file again.', 'product-update-price-xlsx' ) ) );
-		}
-
-		if ( ! empty( $session['complete'] ) ) {
-			if ( ! PUPX_Report_Builder::get_report_path( $session_id, 'xlsx' ) ) {
-				PUPX_Report_Builder::generate_reports( $session_id, $session['not_updated'] );
-			}
-			wp_send_json_success( self::build_batch_response( $session, true ) );
-		}
-
-		wp_suspend_cache_addition( true );
-
 		try {
-			$result = PUPX_Price_Updater::process_batch( $session, PUPX_BATCH_SIZE );
+			$session = PUPX_Import_Session::get_for_batch( $session_id );
+			if ( ! $session ) {
+				wp_send_json_error( array( 'message' => __( 'Import session expired. Please upload the file again.', 'product-update-price-xlsx' ) ) );
+			}
 
-			if ( ! PUPX_Import_Session::save( $session_id, $session ) ) {
+			if ( ! empty( $session['complete'] ) ) {
+				wp_send_json_success( self::build_batch_response( $session_id, $session, true ) );
+			}
+
+			PUPX_Import_Session::set_wc_deferred( true );
+
+			$result      = PUPX_Price_Updater::process_batch( $session_id, $session, PUPX_BATCH_SIZE );
+			$new_skipped = isset( $session['new_skipped'] ) ? $session['new_skipped'] : array();
+
+			if ( ! PUPX_Import_Session::save_batch( $session_id, $session, $new_skipped ) ) {
 				wp_send_json_error( array( 'message' => __( 'Could not save import progress. Check server disk space and permissions.', 'product-update-price-xlsx' ) ) );
 			}
-		} catch ( Exception $e ) {
-			wp_send_json_error( array( 'message' => $e->getMessage() ) );
-		} finally {
-			wp_suspend_cache_addition( false );
-		}
 
-		if ( $result['complete'] && function_exists( 'wc_update_product_lookup_tables' ) ) {
-			wc_update_product_lookup_tables();
-		}
+			PUPX_Import_Session::set_wc_deferred( false );
 
-		if ( $result['complete'] ) {
-			PUPX_Report_Builder::generate_reports( $session_id, $session['not_updated'] );
+			wp_send_json_success( self::build_batch_response( $session_id, $session, $result['complete'] ) );
+		} catch ( Throwable $e ) {
+			PUPX_Import_Session::set_wc_deferred( false );
+			wp_send_json_error(
+				array(
+					'message' => sprintf(
+						/* translators: %s: error message */
+						__( 'Import batch failed: %s', 'product-update-price-xlsx' ),
+						$e->getMessage()
+					),
+				)
+			);
 		}
-
-		wp_send_json_success( self::build_batch_response( $session, $result['complete'] ) );
 	}
 
 	/**
 	 * Build AJAX batch response payload.
 	 *
-	 * @param array $session  Session data.
-	 * @param bool  $complete Whether import is complete.
+	 * @param string $session_id Session ID.
+	 * @param array  $session    Session data.
+	 * @param bool   $complete   Whether import is complete.
 	 * @return array
 	 */
-	private static function build_batch_response( array $session, $complete ) {
+	private static function build_batch_response( $session_id, array $session, $complete ) {
 		$total     = (int) $session['total'];
 		$processed = (int) $session['offset'];
 
@@ -316,7 +316,7 @@ class PUPX_Admin_Page {
 		);
 
 		if ( $complete ) {
-			$not_updated = isset( $session['not_updated'] ) ? $session['not_updated'] : array();
+			$not_updated = PUPX_Import_Session::read_not_updated( $session_id );
 			$labels      = PUPX_Price_Updater::reason_labels();
 			$preview     = array_slice( $not_updated, 0, 200 );
 
@@ -366,9 +366,11 @@ class PUPX_Admin_Page {
 			wp_die( esc_html__( 'Report not available. Please run the import again.', 'product-update-price-xlsx' ) );
 		}
 
+		$not_updated = $session['not_updated'];
+
 		$file = PUPX_Report_Builder::get_report_path( $session_id, $format );
 		if ( ! $file ) {
-			PUPX_Report_Builder::generate_reports( $session_id, $session['not_updated'] );
+			PUPX_Report_Builder::generate_reports( $session_id, $not_updated );
 			$file = PUPX_Report_Builder::get_report_path( $session_id, $format );
 		}
 

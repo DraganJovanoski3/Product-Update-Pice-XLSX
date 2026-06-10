@@ -27,19 +27,21 @@ class PUPX_Price_Updater {
 	/**
 	 * Process a batch of import rows.
 	 *
-	 * @param array $session Session data (modified in place).
-	 * @param int   $batch_size Number of rows per batch.
+	 * @param string $session_id Session ID.
+	 * @param array  $session    Session data (modified in place).
+	 * @param int    $batch_size Number of rows per batch.
 	 * @return array Batch result stats.
 	 */
-	public static function process_batch( array &$session, $batch_size = PUPX_BATCH_SIZE ) {
-		PUPX_Import_Session::ensure_sku_map( $session );
+	public static function process_batch( $session_id, array &$session, $batch_size = PUPX_BATCH_SIZE ) {
+		PUPX_Import_Session::ensure_sku_map( $session_id, $session );
 
-		$rows     = $session['rows'];
-		$offset   = (int) $session['offset'];
-		$total    = (int) $session['total'];
-		$end      = min( $offset + $batch_size, $total );
-		$updated  = 0;
-		$skipped  = 0;
+		$rows        = $session['rows'];
+		$offset      = (int) $session['offset'];
+		$total       = (int) $session['total'];
+		$end         = min( $offset + $batch_size, $total );
+		$updated     = 0;
+		$skipped     = 0;
+		$new_skipped = array();
 
 		for ( $i = $offset; $i < $end; $i++ ) {
 			$row    = $rows[ $i ];
@@ -49,7 +51,7 @@ class PUPX_Price_Updater {
 				++$updated;
 			} else {
 				++$skipped;
-				$session['not_updated'][] = array(
+				$new_skipped[] = array(
 					'row_num' => $row['row_num'],
 					'sku'     => $row['sku'],
 					'price'   => $row['price'],
@@ -58,10 +60,13 @@ class PUPX_Price_Updater {
 			}
 		}
 
-		$session['offset']  = $end;
-		$session['updated'] += $updated;
-		$session['skipped'] += $skipped;
-		$session['complete'] = $session['offset'] >= $total;
+		unset( $session['rows'] );
+
+		$session['offset']     = $end;
+		$session['updated']   += $updated;
+		$session['skipped']   += $skipped;
+		$session['complete']   = $session['offset'] >= $total;
+		$session['new_skipped'] = $new_skipped;
 
 		return array(
 			'processed' => $end,
