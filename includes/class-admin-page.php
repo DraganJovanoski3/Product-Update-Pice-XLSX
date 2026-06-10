@@ -196,6 +196,7 @@ class PUPX_Admin_Page {
 	 */
 	public static function ajax_upload_file() {
 		self::verify_request();
+		PUPX_Import_Session::raise_limits();
 
 		if ( empty( $_FILES['pupx_file'] ) ) {
 			wp_send_json_error( array( 'message' => __( 'No file uploaded.', 'product-update-price-xlsx' ) ) );
@@ -204,7 +205,15 @@ class PUPX_Admin_Page {
 		$file = $_FILES['pupx_file'];
 
 		if ( ! empty( $file['error'] ) ) {
-			wp_send_json_error( array( 'message' => __( 'File upload failed.', 'product-update-price-xlsx' ) ) );
+			wp_send_json_error(
+				array(
+					'message' => sprintf(
+						/* translators: %d: PHP upload error code */
+						__( 'File upload failed (error code %d). Check upload_max_filesize on the server.', 'product-update-price-xlsx' ),
+						(int) $file['error']
+					),
+				)
+			);
 		}
 
 		$ext = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
@@ -223,7 +232,11 @@ class PUPX_Admin_Page {
 			wp_send_json_error( array( 'message' => $e->getMessage() ) );
 		}
 
-		$session_id = PUPX_Import_Session::create( $parsed['rows'] );
+		try {
+			$session_id = PUPX_Import_Session::create( $parsed['rows'] );
+		} catch ( Exception $e ) {
+			wp_send_json_error( array( 'message' => $e->getMessage() ) );
+		}
 
 		wp_send_json_success(
 			array(
@@ -239,6 +252,7 @@ class PUPX_Admin_Page {
 	 */
 	public static function ajax_process_batch() {
 		self::verify_request();
+		PUPX_Import_Session::raise_limits();
 
 		$session_id = isset( $_POST['session_id'] ) ? sanitize_text_field( wp_unslash( $_POST['session_id'] ) ) : '';
 
@@ -247,37 +261,76 @@ class PUPX_Admin_Page {
 			wp_send_json_error( array( 'message' => __( 'Import session expired. Please upload the file again.', 'product-update-price-xlsx' ) ) );
 		}
 
-		$result = PUPX_Price_Updater::process_batch( $session, PUPX_BATCH_SIZE );
-		PUPX_Import_Session::save( $session_id, $session );
-
-		$response = array(
-			'processed' => $result['processed'],
-			'total'     => $result['total'],
-			'updated'   => $result['updated'],
-			'skipped'   => $result['skipped'],
-			'complete'  => $result['complete'],
-			'percent'   => $result['total'] > 0 ? round( ( $result['processed'] / $result['total'] ) * 100 ) : 100,
-		);
-
-		if ( $result['complete'] ) {
-			$not_updated = $session['not_updated'];
-			$labels      = PUPX_Price_Updater::reason_labels();
-
-			$response['not_updated'] = array_map(
-				function ( $row ) use ( $labels ) {
-					return array(
-						'row_num'       => $row['row_num'],
-						'sku'           => $row['sku'],
-						'price'         => $row['price'],
-						'reason'        => $row['reason'],
-						'reason_label'  => isset( $labels[ $row['reason'] ] ) ? $labels[ $row['reason'] ] : $row['reason'],
-					);
-				},
-				$not_updated
-			);
+		if ( ! empty( $session['complete'] ) ) {
+			wp_send_json_success( self::build_batch_response( $session, true ) );
 		}
 
-		wp_send_json_success( $response );
+		wp_suspend_cache_addition( true );
+
+		try {
+			$result = PUPX_Price_Updater::process_batch( $session, PUPX_BATCH_SIZE );
+
+			if ( ! PUPX_Import_Session::save( $session_id, $session ) ) {
+				wp_send_json_error( array( 'message' => __( 'Could not save import progress. Check server disk space and permissions.', 'product-update-price-xlsx' ) ) );
+			}
+		} catch ( Exception $e ) {
+			wp_send_json_error( array( 'message' => $e->getMessage() ) );
+		} finally {
+			wp_suspend_cache_addition( false );
+		}
+
+		if ( $result['complete'] && function_exists( 'wc_update_product_lookup_tables' ) ) {
+			wc_update_product_lookup_tables();
+		}
+
+		wp_send_json_success( self::build_batch_response( $session, $result['complete'] ) );
+	}
+
+	/**
+	 * Build AJAX batch response payload.
+	 *
+	 * @param array $session  Session data.
+	 * @param bool  $complete Whether import is complete.
+	 * @return array
+	 */
+	private static function build_batch_response( array $session, $complete ) {
+		$total     = (int) $session['total'];
+		$processed = (int) $session['offset'];
+
+		$response = array(
+			'processed' => $processed,
+			'total'     => $total,
+			'updated'   => (int) $session['updated'],
+			'skipped'   => (int) $session['skipped'],
+			'complete'  => (bool) $complete,
+			'percent'   => $total > 0 ? round( ( $processed / $total ) * 100 ) : 100,
+		);
+
+		if ( $complete ) {
+			$not_updated = isset( $session['not_updated'] ) ? $session['not_updated'] : array();
+			$labels      = PUPX_Price_Updater::reason_labels();
+			$preview     = array_slice( $not_updated, 0, 200 );
+
+			$response['not_updated_count'] = count( $not_updated );
+			$response['not_updated']       = array_map(
+				function ( $row ) use ( $labels ) {
+					return array(
+						'row_num'      => $row['row_num'],
+						'sku'          => $row['sku'],
+						'price'        => $row['price'],
+						'reason'       => $row['reason'],
+						'reason_label' => isset( $labels[ $row['reason'] ] ) ? $labels[ $row['reason'] ] : $row['reason'],
+					);
+				},
+				$preview
+			);
+
+			if ( count( $not_updated ) > count( $preview ) ) {
+				$response['not_updated_truncated'] = true;
+			}
+		}
+
+		return $response;
 	}
 
 	/**

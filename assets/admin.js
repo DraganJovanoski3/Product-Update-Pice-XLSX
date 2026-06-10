@@ -86,6 +86,14 @@
 					'</tr>'
 				);
 			});
+
+			if (data.not_updated_truncated) {
+				$body.append(
+					'<tr><td colspan="4">' +
+						escapeHtml('Showing first 200 of ' + (data.not_updated_count || data.not_updated.length) + ' not-updated rows. Download the full report below.') +
+					'</td></tr>'
+				);
+			}
 		} else {
 			$body.append(
 				'<tr><td colspan="4">All rows were updated successfully.</td></tr>'
@@ -96,10 +104,35 @@
 		showNotice(pupxAdmin.i18n.complete, 'success');
 	}
 
+	function getAjaxErrorMessage(xhr, fallback) {
+		if (xhr.responseJSON && xhr.responseJSON.data && xhr.responseJSON.data.message) {
+			return xhr.responseJSON.data.message;
+		}
+
+		if (xhr.responseText) {
+			try {
+				var parsed = JSON.parse(xhr.responseText);
+				if (parsed.data && parsed.data.message) {
+					return parsed.data.message;
+				}
+			} catch (e) {
+				if (xhr.status === 504 || xhr.status === 502) {
+					return 'Server timeout — try again or import in smaller batches.';
+				}
+				if (xhr.status === 413) {
+					return 'File too large for server upload limits.';
+				}
+			}
+		}
+
+		return fallback;
+	}
+
 	function processBatch() {
 		return $.ajax({
 			url: pupxAdmin.ajaxUrl,
 			type: 'POST',
+			timeout: 300000,
 			data: {
 				action: 'pupx_process_batch',
 				nonce: pupxAdmin.nonce,
@@ -134,8 +167,8 @@
 
 					nextBatch();
 				})
-				.fail(function () {
-					showNotice(pupxAdmin.i18n.error, 'error');
+				.fail(function (xhr) {
+					showNotice(getAjaxErrorMessage(xhr, pupxAdmin.i18n.error), 'error');
 					$('#pupx-start-import').prop('disabled', false).removeClass('pupx-loading');
 				});
 		}
@@ -166,6 +199,7 @@
 		$.ajax({
 			url: pupxAdmin.ajaxUrl,
 			type: 'POST',
+			timeout: 300000,
 			data: formData,
 			processData: false,
 			contentType: false
@@ -180,8 +214,8 @@
 				totalRows = response.data.total;
 				renderPreview(response.data.preview, response.data.total);
 			})
-			.fail(function () {
-				showNotice(pupxAdmin.i18n.error, 'error');
+			.fail(function (xhr) {
+				showNotice(getAjaxErrorMessage(xhr, pupxAdmin.i18n.error), 'error');
 			})
 			.always(function () {
 				$('#pupx-upload-btn').prop('disabled', false).text('Upload & Preview');
