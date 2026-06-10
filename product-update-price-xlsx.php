@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Product Update Price XLSX
  * Description: Import regular prices from XLSX by SKU. Safe batch updates with not-updated report.
- * Version: 1.0.3
+ * Version: 1.0.4
  * Author: Product Update Price XLSX
  * Requires at least: 5.8
  * Requires PHP: 7.4
@@ -12,11 +12,11 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'PUPX_VERSION', '1.0.3' );
+define( 'PUPX_VERSION', '1.0.4' );
 define( 'PUPX_PLUGIN_FILE', __FILE__ );
 define( 'PUPX_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'PUPX_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
-define( 'PUPX_BATCH_SIZE', 50 );
+define( 'PUPX_BATCH_SIZE', 20 );
 
 /**
  * Bootstrap the plugin after dependencies are available.
