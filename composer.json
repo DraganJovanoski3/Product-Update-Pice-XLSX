@@ -1,0 +1,14 @@
+{
+    "name": "product-update-price-xlsx/plugin",
+    "description": "WooCommerce SKU-based XLSX price updater",
+    "type": "wordpress-plugin",
+    "require": {
+        "php": ">=7.4",
+        "phpoffice/phpspreadsheet": "^1.29"
+    },
+    "autoload": {
+        "classmap": [
+            "includes/"
+        ]
+    }
+}
