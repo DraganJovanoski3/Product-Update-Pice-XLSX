@@ -27,9 +27,7 @@ class PUPX_Report_Builder {
 	 * @param array $not_updated Not-updated rows.
 	 */
 	public static function stream_csv( array $not_updated ) {
-		header( 'Content-Type: text/csv; charset=utf-8' );
-		header( 'Content-Disposition: attachment; filename="not-updated-prices.csv"' );
-		header( 'Cache-Control: max-age=0' );
+		PUPX_File_Download::stream_headers( 'not-updated-prices.csv', 'text/csv; charset=utf-8' );
 
 		$output = fopen( 'php://output', 'w' );
 		fprintf( $output, chr( 0xEF ) . chr( 0xBB ) . chr( 0xBF ) );
@@ -85,9 +83,10 @@ class PUPX_Report_Builder {
 		$sheet->getColumnDimension( 'C' )->setWidth( 12 );
 		$sheet->getColumnDimension( 'D' )->setWidth( 30 );
 
-		header( 'Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' );
-		header( 'Content-Disposition: attachment; filename="not-updated-prices.xlsx"' );
-		header( 'Cache-Control: max-age=0' );
+		PUPX_File_Download::stream_headers(
+			'not-updated-prices.xlsx',
+			'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+		);
 
 		$writer = new Xlsx( $spreadsheet );
 		$writer->save( 'php://output' );

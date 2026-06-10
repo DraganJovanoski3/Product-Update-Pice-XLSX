@@ -144,9 +144,10 @@ class PUPX_Xlsx_Parser {
 		$sheet->getColumnDimension( 'A' )->setWidth( 20 );
 		$sheet->getColumnDimension( 'B' )->setWidth( 15 );
 
-		header( 'Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' );
-		header( 'Content-Disposition: attachment; filename="price-import-template.xlsx"' );
-		header( 'Cache-Control: max-age=0' );
+		PUPX_File_Download::stream_headers(
+			'price-import-template.xlsx',
+			'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+		);
 
 		$writer = new Xlsx( $spreadsheet );
 		$writer->save( 'php://output' );

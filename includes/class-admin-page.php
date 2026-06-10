@@ -317,6 +317,20 @@ class PUPX_Admin_Page {
 
 		check_admin_referer( 'pupx_download_template' );
 
-		PUPX_Xlsx_Parser::stream_sample_template();
+		$file = PUPX_PLUGIN_DIR . 'templates/price-import-template.xlsx';
+
+		if ( file_exists( $file ) ) {
+			PUPX_File_Download::send_file(
+				$file,
+				'price-import-template.xlsx',
+				'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+			);
+		}
+
+		try {
+			PUPX_Xlsx_Parser::stream_sample_template();
+		} catch ( Exception $e ) {
+			wp_die( esc_html__( 'Could not generate template file.', 'product-update-price-xlsx' ) );
+		}
 	}
 }
