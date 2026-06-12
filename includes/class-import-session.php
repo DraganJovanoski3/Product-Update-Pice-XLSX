@@ -145,7 +145,7 @@ class PUPX_Import_Session {
 	 * @return string Session ID.
 	 * @throws Exception When session cannot be created.
 	 */
-	public static function create( array $rows ) {
+	public static function create( array $rows, $import_type = 'price' ) {
 		self::cleanup_old_sessions();
 
 		$session_id = wp_generate_uuid4();
@@ -163,6 +163,7 @@ class PUPX_Import_Session {
 		}
 
 		$meta = array(
+			'import_type'    => in_array( $import_type, array( 'price', 'content' ), true ) ? $import_type : 'price',
 			'total'          => count( $rows ),
 			'offset'         => 0,
 			'updated'        => 0,
@@ -318,6 +319,7 @@ class PUPX_Import_Session {
 		}
 
 		$meta = array(
+			'import_type'    => isset( $session['import_type'] ) ? $session['import_type'] : 'price',
 			'total'          => (int) $session['total'],
 			'offset'         => (int) $session['offset'],
 			'updated'        => (int) $session['updated'],

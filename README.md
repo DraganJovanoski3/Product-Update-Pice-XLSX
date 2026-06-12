@@ -1,14 +1,19 @@
 # Product Update Price XLSX
 
-WooCommerce plugin to import **regular prices** from an XLSX file by SKU.
+WooCommerce plugin to import **regular prices** and **SEO/content fields** from XLSX files by SKU.
 
 ## Features
 
+### Price import
 - XLSX-only import (2 columns: SKU, Regular Price)
-- Batch processing for ~2000+ products with progress bar
-- Updates **regular price only** — sale price and all other product data unchanged
-- Strict SKU matching — skips products not found, duplicated, or mismatched
-- Not Updated report with downloadable XLSX/CSV export
+- Updates **regular price only**
+
+### SEO & content import
+- Multi-column XLSX with header row
+- Updates: title, slug, descriptions, Yoast SEO fields, tags, categories, cross_reference meta
+- Empty cells are skipped (existing data not cleared)
+
+### Both imports
 
 ## Requirements
 
@@ -22,7 +27,7 @@ WooCommerce plugin to import **regular prices** from an XLSX file by SKU.
 1. Copy this folder to `wp-content/plugins/product-update-price-xlsx/`
 2. Run `composer install` inside the plugin folder
 3. Activate **Product Update Price XLSX** in WordPress admin
-4. Go to **WooCommerce → Update Prices (XLSX)**
+4. Go to **WooCommerce → Update Prices (XLSX)** or **WooCommerce → Update SEO & Content (XLSX)**
 
 ## XLSX Format
 

@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Product Update Price XLSX
- * Description: Import regular prices from XLSX by SKU. Safe batch updates with not-updated report.
- * Version: 1.0.5
+ * Description: Import product prices and SEO/content from XLSX by SKU. Safe batch updates with not-updated report.
+ * Version: 1.1.0
  * Author: Product Update Price XLSX
  * Requires at least: 5.8
  * Requires PHP: 7.4
@@ -12,7 +12,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'PUPX_VERSION', '1.0.5' );
+define( 'PUPX_VERSION', '1.1.0' );
 define( 'PUPX_PLUGIN_FILE', __FILE__ );
 define( 'PUPX_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'PUPX_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -40,10 +40,14 @@ function pupx_init() {
 	require_once PUPX_PLUGIN_DIR . 'includes/class-xlsx-parser.php';
 	require_once PUPX_PLUGIN_DIR . 'includes/class-sku-resolver.php';
 	require_once PUPX_PLUGIN_DIR . 'includes/class-price-updater.php';
+	require_once PUPX_PLUGIN_DIR . 'includes/class-content-xlsx-parser.php';
+	require_once PUPX_PLUGIN_DIR . 'includes/class-content-updater.php';
 	require_once PUPX_PLUGIN_DIR . 'includes/class-report-builder.php';
 	require_once PUPX_PLUGIN_DIR . 'includes/class-admin-page.php';
+	require_once PUPX_PLUGIN_DIR . 'includes/class-admin-content-page.php';
 
 	PUPX_Admin_Page::init();
+	PUPX_Admin_Content_Page::init();
 }
 add_action( 'plugins_loaded', 'pupx_init' );
 
